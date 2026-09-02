@@ -113,13 +113,19 @@ export default function BlogPostPage() {
   }
 
   const formatContent = (content: string) => {
+    // Sanitize any placeholder caption text
+    const sanitizedContent = content
+      .replace(/<figcaption[^>]*>\s*Click here to add image caption\.{0,3}\s*<\/figcaption>/gi, '')
+      .replace(/<figcaption[^>]*>\s*Click here to add caption\.{0,3}\s*<\/figcaption>/gi, '')
+      .replace(/<figcaption[^>]*>\s*<\/figcaption>/gi, '')
+
     // If the content is rich HTML (from our text editor), render it directly
-    const isHtml = /<[a-z][\s\S]*>/i.test(content)
+    const isHtml = /<[a-z][\s\S]*>/i.test(sanitizedContent)
     if (isHtml) {
       return (
         <div 
-          className="prose prose-lg max-w-none text-gray-700 leading-relaxed space-y-6"
-          dangerouslySetInnerHTML={{ __html: content }}
+          className="prose prose-lg max-w-none text-gray-700 leading-relaxed space-y-6 blog-content"
+          dangerouslySetInnerHTML={{ __html: sanitizedContent }}
         />
       )
     }
@@ -134,6 +140,27 @@ export default function BlogPostPage() {
              !trimmed.match(/^(Tags?|Categories?):?/i) && // Tag/category labels
              !trimmed.match(/^(Source|Via):?/i) // Source labels
     })
+
+    // Handle inline formatting
+    const formatInlineContent = (text: string) => {
+      // Bold text
+      text = text.replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-gray-900">$1</strong>')
+      
+      // Italic text  
+      text = text.replace(/\*(.*?)\*/g, '<em class="italic">$1</em>')
+      
+      // Links - but filter out common unwanted links
+      text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, linkText, url) => {
+        // Skip common unwanted link patterns
+        if (linkText.match(/share|subscribe|newsletter|advertisement/i) || 
+            url.match(/facebook\.com|twitter\.com|linkedin\.com|instagram\.com/)) {
+          return linkText // Return just the text without the link
+        }
+        return `<a href="${url}" class="text-blue-600 hover:text-blue-800 underline decoration-2 underline-offset-2 transition-colors" target="_blank" rel="noopener noreferrer">${linkText}</a>`
+      })
+      
+      return text
+    }
     
     return sections.map((section, index) => {
       const trimmed = section.trim()
@@ -157,6 +184,29 @@ export default function BlogPostPage() {
         )
       }
       
+      // Blockquotes (Markdown > syntax)
+      if (trimmed.startsWith('> ') || trimmed.startsWith('>')) {
+        const quoteText = trimmed.replace(/^>\s*/, '')
+        return (
+          <blockquote key={index} className="border-l-4 border-blue-500 bg-blue-50/40 py-3 px-5 rounded-r-lg my-6 text-gray-700 italic text-lg leading-relaxed blog-quote">
+            <p dangerouslySetInnerHTML={{ __html: formatInlineContent(quoteText) }} />
+          </blockquote>
+        )
+      }
+
+      // Markdown images (![alt](url))
+      if (trimmed.startsWith('![') && trimmed.includes('](')) {
+        const match = trimmed.match(/!\[(.*?)\]\((.*?)\)/)
+        if (match) {
+          return (
+            <div key={index} className="my-8 rounded-lg overflow-hidden shadow-md">
+              <img src={getImageUrl(match[2])} alt={match[1] || "Article image"} className="w-full max-h-[500px] object-cover rounded-lg" />
+              {match[1] && <p className="text-xs text-center text-gray-500 mt-2">{match[1]}</p>}
+            </div>
+          )
+        }
+      }
+
       // Bullet lists
       if (trimmed.includes('\n- ') || trimmed.startsWith('- ')) {
         const listItems = trimmed.split('\n').filter(item => item.trim().startsWith('- '))
@@ -170,27 +220,6 @@ export default function BlogPostPage() {
             ))}
           </ul>
         )
-      }
-      
-      // Handle inline formatting
-      const formatInlineContent = (text: string) => {
-        // Bold text
-        text = text.replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-gray-900">$1</strong>')
-        
-        // Italic text  
-        text = text.replace(/\*(.*?)\*/g, '<em class="italic">$1</em>')
-        
-        // Links - but filter out common unwanted links
-        text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, linkText, url) => {
-          // Skip common unwanted link patterns
-          if (linkText.match(/share|subscribe|newsletter|advertisement/i) || 
-              url.match(/facebook\.com|twitter\.com|linkedin\.com|instagram\.com/)) {
-            return linkText // Return just the text without the link
-          }
-          return `<a href="${url}" class="text-blue-600 hover:text-blue-800 underline decoration-2 underline-offset-2 transition-colors" target="_blank" rel="noopener noreferrer">${linkText}</a>`
-        })
-        
-        return text
       }
       
       // Regular paragraphs - filter out very short or metadata-like content

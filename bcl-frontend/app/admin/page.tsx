@@ -16,9 +16,15 @@ import { Separator } from "@/components/ui/separator"
 import {
   Plus, Edit, Trash2, Link as LinkIcon, Eye, Calendar, MapPin,
   Users, BookOpen, Tags, AwardIcon, User, Clock, Lock, LockOpen,
-  Loader2, GraduationCap, Download
+  Loader2, GraduationCap, Download, FileText
 } from "lucide-react"
 import { adminApi, eventApi, blogApi, memberApi, Event, Blog, Member, formatDate } from "@/lib/api"
+import {
+  getAllBlogDrafts,
+  deleteBlogDraft,
+  formatDraftTime,
+  BlogDraft
+} from "@/lib/drafts"
 
 const API_BASE = "https://bcl-website-95bd.onrender.com"
 
@@ -29,6 +35,7 @@ export default function AdminDashboard() {
   const [events, setEvents] = useState<Event[]>([])
   const [blogs, setBlogs] = useState<Blog[]>([])
   const [members, setMembers] = useState<Member[]>([])
+  const [blogDrafts, setBlogDrafts] = useState<BlogDraft[]>([])
   const [loginForm, setLoginForm] = useState({ username: "", password: "" })
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
   const [selectedBlog, setBlog] = useState<Blog | null>(null)
@@ -43,13 +50,42 @@ export default function AdminDashboard() {
   const [cohortToggleLoading, setCohortToggleLoading] = useState(false)
   const [cohortStatusUpdatedAt, setCohortStatusUpdatedAt] = useState<string | null>(null)
 
+  const loadDrafts = () => {
+    const drafts = getAllBlogDrafts()
+    setBlogDrafts(drafts)
+  }
+
+  const handleDiscardDraft = (draftId: string) => {
+    if (confirm("Are you sure you want to discard this draft?")) {
+      deleteBlogDraft(draftId)
+      loadDrafts()
+    }
+  }
+
   useEffect(() => {
     const token = localStorage.getItem('admin_token')
     if (token) {
       setIsAuthenticated(true)
       fetchData()
     }
+    loadDrafts()
     setLoading(false)
+
+    // Automatically update saved drafts whenever the user returns to this tab or saves a draft in another window
+    const handleFocus = () => loadDrafts()
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key?.startsWith("bcl_blog_draft") || e.key === "bcl_all_blog_drafts") {
+        loadDrafts()
+      }
+    }
+
+    window.addEventListener("focus", handleFocus)
+    window.addEventListener("storage", handleStorage)
+
+    return () => {
+      window.removeEventListener("focus", handleFocus)
+      window.removeEventListener("storage", handleStorage)
+    }
   }, [])
 
   const fetchData = async () => {
@@ -99,6 +135,7 @@ export default function AdminDashboard() {
       const response = await adminApi.login(loginForm.username, loginForm.password)
       localStorage.setItem('admin_token', response.access_token)
       setIsAuthenticated(true)
+      loadDrafts()
       await fetchData()
       await fetchCohortStatus()
     } catch (error) {
@@ -245,7 +282,7 @@ export default function AdminDashboard() {
 
             {/* ── Blogs Tab ─────────────────────────────────────────────── */}
             <TabsContent value="blogs">
-              <div className="space-y-6">
+              <div className="space-y-8">
                 <div className="flex items-center justify-between">
                   <h2 className="text-2xl font-bold text-gray-900">Manage Blogs</h2>
                   <div className="flex gap-2">
@@ -269,27 +306,110 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {blogs.map((blog) => (
-                    <BlogAdminCard
-                      key={blog.id}
-                      blog={blog}
-                      onEdit={(blog) => { router.push(`/admin/newblog?id=${blog.id}`) }}
-                      onDelete={async (id) => {
-                        if (confirm('Are you sure you want to delete this blog?')) {
-                          try { await adminApi.deleteBlog(id); setBlogs(blogs.filter(b => b.id !== id)) }
-                          catch { alert('Failed to delete blog') }
-                        }
-                      }}
-                    />
-                  ))}
-                </div>
+                {/* Saved Drafts Section */}
+                {blogDrafts.length > 0 && (
+                  <div className="space-y-4 p-5 rounded-xl bg-blue-50/40 border border-blue-100">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="h-8 w-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
+                          <FileText className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <h3 className="text-base font-semibold text-gray-900">
+                            Saved Drafts ({blogDrafts.length})
+                          </h3>
+                          <p className="text-xs text-gray-500">
+                            Unpublished drafts saved on your computer. Click resume to continue writing.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
 
-                {blogs.length === 0 && (
-                  <div className="text-center py-12">
-                    <p className="text-gray-500">No blogs created yet.</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {blogDrafts.map((draft) => {
+                        const plainContent = draft.content ? draft.content.replace(/<[^>]*>/g, " ").trim() : ""
+                        const displayExcerpt = draft.excerpt || plainContent || "No content preview available."
+                        return (
+                          <Card key={draft.id} className="bg-white border-blue-200/70 hover:border-blue-300 shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
+                            <CardHeader className="pb-2">
+                              <div className="flex items-start justify-between gap-2 mb-1">
+                                <div className="flex flex-wrap gap-1.5">
+                                  <Badge variant="secondary" className="text-[11px] font-normal">
+                                    {draft.category || "General"}
+                                  </Badge>
+                                  <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100 border-blue-200 text-[11px] font-medium">
+                                    Draft
+                                  </Badge>
+                                </div>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 text-gray-400 hover:text-red-600 hover:bg-red-50"
+                                  onClick={() => handleDiscardDraft(draft.id)}
+                                  title="Discard draft"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                              <CardTitle className="text-base leading-snug line-clamp-2 text-gray-900">
+                                {draft.title || "Untitled Draft"}
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-3 pt-0">
+                              <p className="text-xs text-gray-600 line-clamp-2 leading-relaxed">
+                                {displayExcerpt}
+                              </p>
+                              <div className="flex items-center justify-between text-[11px] text-gray-500 pt-2 border-t border-gray-100">
+                                <span className="truncate max-w-[120px]">{draft.author || "Admin"}</span>
+                                <span className="flex items-center gap-1 shrink-0">
+                                  <Clock className="h-3 w-3 text-gray-400" />
+                                  {formatDraftTime(draft.savedAt)}
+                                </span>
+                              </div>
+                              <Button
+                                size="sm"
+                                className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold h-8"
+                                onClick={() => router.push(draft.blogId ? `/admin/newblog?id=${draft.blogId}&resumeDraft=true` : `/admin/newblog?draftId=${draft.id}&resumeDraft=true`)}
+                              >
+                                <Edit className="h-3.5 w-3.5 mr-1.5" /> Resume Draft
+                              </Button>
+                            </CardContent>
+                          </Card>
+                        )
+                      })}
+                    </div>
                   </div>
                 )}
+
+                {/* Published Blogs Section */}
+                <div>
+                  <div className="mb-4">
+                    <h3 className="text-base font-semibold text-gray-900">
+                      Published Articles ({blogs.length})
+                    </h3>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {blogs.map((blog) => (
+                      <BlogAdminCard
+                        key={blog.id}
+                        blog={blog}
+                        onEdit={(blog) => { router.push(`/admin/newblog?id=${blog.id}`) }}
+                        onDelete={async (id) => {
+                          if (confirm('Are you sure you want to delete this blog?')) {
+                            try { await adminApi.deleteBlog(id); setBlogs(blogs.filter(b => b.id !== id)) }
+                            catch { alert('Failed to delete blog') }
+                          }
+                        }}
+                      />
+                    ))}
+                  </div>
+
+                  {blogs.length === 0 && (
+                    <div className="text-center py-12">
+                      <p className="text-gray-500">No blogs created yet.</p>
+                    </div>
+                  )}
+                </div>
               </div>
             </TabsContent>
 
