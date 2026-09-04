@@ -13,6 +13,9 @@ const nextConfig = {
       },
     ],
   },
-}
+  turbopack: {
+    root: '.'
+  },
+};
 
-export default nextConfig
+export default nextConfig;
